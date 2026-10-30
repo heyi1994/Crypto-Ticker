@@ -48,11 +48,7 @@ final class MarketStore: ObservableObject {
         selectedWindow = PriceWindow(rawValue: defaults.string(forKey: "priceWindow") ?? "") ?? .day
         watchlist = Watchlist(symbols: defaults.stringArray(forKey: "watchlistSymbols"),
                               pinned: defaults.stringArray(forKey: "pinnedSymbols") ?? ["BTC"])
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 20
-        config.waitsForConnectivity = false
-        session = URLSession(configuration: config)
+        session = URLSession(configuration: .marketFeed)
     }
 
     func togglePin(_ symbol: String) {
@@ -114,8 +110,7 @@ final class MarketStore: ObservableObject {
         defer { isAdding = false }
         do {
             let symbol = try Coin.normalize(input)
-            var candidate = watchlist
-            try candidate.add(symbol)
+            try watchlist.checkCanAdd(symbol)
             var url = URLComponents(string: "https://data-api.binance.vision/api/v3/exchangeInfo")!
             url.queryItems = [URLQueryItem(name: "symbol", value: symbol + "USDT")]
             let (data, response) = try await session.data(from: url.url!)
@@ -248,12 +243,7 @@ final class MarketStore: ObservableObject {
                 while !Task.isCancelled {
                     let message = try await socket.receive()
                     try Task.checkCancellation()
-                    let data: Data
-                    switch message {
-                    case .string(let text): data = Data(text.utf8)
-                    case .data(let bytes): data = bytes
-                    @unknown default: continue
-                    }
+                    guard let data = message.data else { continue }
                     try handleFrame(data, window: window)
                     failures = 0
                 }
@@ -293,6 +283,27 @@ final class MarketStore: ObservableObject {
                 group.addTask { await self.fetchSnapshot(window: window, pairs: [pair]) }
             }
             return await group.reduce(into: []) { $0 += $1 }
+        }
+    }
+}
+
+extension URLSessionConfiguration {
+    /// Shared with `--check-feed`, so the check runs with the app's timeouts.
+    static var marketFeed: URLSessionConfiguration {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 20
+        config.waitsForConnectivity = false
+        return config
+    }
+}
+
+extension URLSessionWebSocketTask.Message {
+    var data: Data? {
+        switch self {
+        case .string(let text): return Data(text.utf8)
+        case .data(let bytes): return bytes
+        @unknown default: return nil
         }
     }
 }

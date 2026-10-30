@@ -4,11 +4,11 @@ import XCTest
 
 final class WatchlistTests: XCTestCase {
     func testInputNormalizationAndInvalidInput() throws {
-        for input in ["ada", " ADA ", "adausdt", "ADA/USDT"] {
+        for input in ["ada", " ADA ", "adausdt", "ADA/USDT", "ａｄａ", "　ＡＤＡ／ＵＳＤＴ　"] {
             XCTAssertEqual(try Coin.normalize(input), "ADA")
         }
         XCTAssertEqual(try Coin.normalize("1000sats"), "1000SATS")
-        for input in ["", " ", "/USDT", "BTC USDT", "BTC/BTC", "BTC@ticker", "BTC&symbol=ETH"] {
+        for input in ["", " ", "/USDT", "BTC USDT", "BTC/BTC", "BTC@ticker", "BTC&symbol=ETH", "ÉTH", "BTÇ", "比特币"] {
             XCTAssertThrowsError(try Coin.normalize(input), input)
         }
     }
@@ -21,6 +21,9 @@ final class WatchlistTests: XCTestCase {
         XCTAssertEqual(restored, list)
         XCTAssertTrue(restored.coins.contains { $0.symbol == "ADA" && $0.pair == "ADAUSDT" })
         XCTAssertThrowsError(try list.add("ADAUSDT"))
+        XCTAssertThrowsError(try list.checkCanAdd("ADA"))
+        XCTAssertNoThrow(try list.checkCanAdd("LINK"))
+        XCTAssertFalse(list.symbols.contains("LINK"))
     }
 
     func testDeletingLastPinnedCoinKeepsAValidMenuBarSelection() {
@@ -49,6 +52,7 @@ final class WatchlistTests: XCTestCase {
         XCTAssertFalse(list.pinned.contains("UNKNOWN"))
         var full = Watchlist(symbols: (0..<50).map { "COIN\($0)" })
         XCTAssertThrowsError(try full.add("ADA"))
+        XCTAssertThrowsError(try full.checkCanAdd("ADA"))
         XCTAssertEqual(full.symbols.count, 50)
     }
 

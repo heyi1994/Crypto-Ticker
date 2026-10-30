@@ -21,14 +21,16 @@ public struct Coin: Identifiable, Equatable, Sendable {
     }
 
     public static func normalize(_ input: String) throws -> String {
-        var symbol = input.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        // Compatibility mapping turns fullwidth input such as "ＡＤＡ" into ASCII.
+        var symbol = input.precomposedStringWithCompatibilityMapping
+            .trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         if symbol.hasSuffix("/USDT") {
             symbol.removeLast(5)
         } else if symbol.hasSuffix("USDT"), symbol.count > 4 {
             symbol.removeLast(4)
         }
         guard !symbol.isEmpty, symbol.count <= 32,
-              symbol.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) }) else {
+              symbol.unicodeScalars.allSatisfy({ $0.isASCII && CharacterSet.alphanumerics.contains($0) }) else {
             throw WatchlistError.invalidSymbol
         }
         return symbol
@@ -87,9 +89,14 @@ public struct Watchlist: Equatable, Sendable {
 
     public mutating func add(_ input: String) throws {
         let symbol = try Coin.normalize(input)
+        try checkCanAdd(symbol)
+        symbols.append(symbol)
+    }
+
+    /// Checks a normalized symbol against duplicates and the size limit without adding it.
+    public func checkCanAdd(_ symbol: String) throws {
         guard !symbols.contains(symbol) else { throw WatchlistError.duplicate }
         guard symbols.count < 50 else { throw WatchlistError.limitReached }
-        symbols.append(symbol)
     }
 
     public mutating func remove(_ symbol: String) {

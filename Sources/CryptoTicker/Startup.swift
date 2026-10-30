@@ -42,10 +42,7 @@ private func checkFeed(window: PriceWindow) async {
         do {
             let pairs = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
             let url = try window.snapshotURL(pairs: pairs)
-            let config = URLSessionConfiguration.ephemeral
-            config.timeoutIntervalForRequest = 15
-            config.timeoutIntervalForResource = 20
-            let session = URLSession(configuration: config)
+            let session = URLSession(configuration: .marketFeed)
             let (data, response) = try await session.data(from: url)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
             for quote in try Quote.decodeSnapshot(data, window: window) {
@@ -61,12 +58,7 @@ private func checkFeed(window: PriceWindow) async {
             var count = 0
             while count < 3 {
                 let message = try await socket.receive()
-                let payload: Data
-                switch message {
-                case .string(let text): payload = Data(text.utf8)
-                case .data(let bytes): payload = bytes
-                @unknown default: continue
-                }
+                guard let payload = message.data else { continue }
                 if let quote = try Quote.decodeStream(payload, window: window) {
                     print("WS   [\(window.rawValue)] \(quote.symbol) \(quote.formattedPrice) USDT \(quote.formattedChange)")
                     count += 1
