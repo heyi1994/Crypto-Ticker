@@ -49,15 +49,7 @@ struct TickerView: View {
             HStack {
                 Text(L10n.text("coin.column")).font(.system(size: 10, weight: .medium))
                 Spacer()
-                Picker(L10n.text("window.label"), selection: Binding(get: { store.selectedWindow }, set: { store.selectWindow($0) })) {
-                    ForEach(PriceWindow.allCases) { window in
-                        Text(window.rawValue).tag(window)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: 144)
-                .help(L10n.text("window.help", store.selectedWindow.rawValue))
+                WindowPicker(store: store, selection: store.selectedWindow)
                 Text(L10n.text(isManaging ? "coin.remove" : "coin.pin")).font(.system(size: 10, weight: .medium)).frame(width: 42)
             }.foregroundStyle(.secondary).padding(.horizontal, 20).padding(.bottom, 7)
 
@@ -218,5 +210,25 @@ struct TickerView: View {
         Task {
             if await store.addCoin(input) { newSymbol = "" }
         }
+    }
+}
+
+/// On macOS 26, each re-evaluation of a segmented Picker leaks SwiftUI observation
+/// records, so the panel grew slower the longer the app ran. As its own view with
+/// unchanged inputs, the picker is skipped when quotes update the panel.
+private struct WindowPicker: View {
+    let store: MarketStore
+    let selection: PriceWindow
+
+    var body: some View {
+        Picker(L10n.text("window.label"), selection: Binding(get: { selection }, set: { store.selectWindow($0) })) {
+            ForEach(PriceWindow.allCases) { window in
+                Text(window.rawValue).tag(window)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .frame(width: 144)
+        .help(L10n.text("window.help", selection.rawValue))
     }
 }
