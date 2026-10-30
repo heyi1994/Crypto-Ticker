@@ -50,6 +50,18 @@ final class VolatilityMonitorTests: XCTestCase {
         XCTAssertNotNil(record(&monitor, 105, 301))
     }
 
+    func testOneMoveAlertsOnlyOnceAcrossCooldowns() {
+        var monitor = VolatilityMonitor()
+        let rule = VolatilityRule(minutes: 15)
+        XCTAssertNil(record(&monitor, 100, 0, rule: rule))
+        XCTAssertNotNil(record(&monitor, 102, 10, rule: rule))
+        // The price holds at the new level through two cooldowns inside the 15-minute window.
+        for second in stride(from: 20, through: 900, by: 10) {
+            XCTAssertNil(record(&monitor, 102, Double(second), rule: rule), "second \(second)")
+        }
+        XCTAssertNotNil(record(&monitor, 103.1, 910, rule: rule))
+    }
+
     func testReconnectGapStartsANewBaseline() {
         var monitor = VolatilityMonitor()
         XCTAssertNil(record(&monitor, 100, 0))

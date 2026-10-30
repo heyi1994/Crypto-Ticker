@@ -61,6 +61,8 @@ public struct VolatilityMonitor {
         guard change.isFinite, abs(change) + 0.00000001 >= rule.thresholdPercent else { return nil }
         if let last = lastAlerts[symbol], now.timeIntervalSince(last) < Self.cooldown { return nil }
         lastAlerts[symbol] = now
+        // Rebase on the alerted price so the same move is not reported again after the cooldown.
+        samples[symbol] = [Sample(price: price, date: date)]
         return MovementAlert(symbol: symbol, price: price, changePercent: change,
                              minutes: rule.minutes, date: now)
     }

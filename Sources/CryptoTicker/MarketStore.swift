@@ -33,6 +33,7 @@ final class MarketStore: ObservableObject {
     private var stream: URLSessionWebSocketTask?
     private var connectionTask: Task<Void, Never>?
     private var clockTask: Task<Void, Never>?
+    private var snapshotTask: Task<Void, Never>?
     // The last frame or pong on the current socket.
     private var lastActivity: Date?
     private var pinging = false
@@ -162,12 +163,15 @@ final class MarketStore: ObservableObject {
     func stop() {
         connectionTask?.cancel()
         clockTask?.cancel()
+        snapshotTask?.cancel()
         stream?.cancel(with: .goingAway, reason: nil)
         connectionTask = nil
         clockTask = nil
+        snapshotTask = nil
         stream = nil
         lastActivity = nil
         live = false
+        status = L10n.text("status.paused")
     }
 
     func reconnect() {
@@ -236,7 +240,8 @@ final class MarketStore: ObservableObject {
             lastActivity = Date()
             pinging = false
             socket.resume()
-            let snapshot = Task { [weak self] in await self?.loadSnapshot(window: window) }
+            let snapshot = Task<Void, Never> { [weak self] in await self?.loadSnapshot(window: window) }
+            snapshotTask = snapshot
             do {
                 while !Task.isCancelled {
                     let message = try await socket.receive()

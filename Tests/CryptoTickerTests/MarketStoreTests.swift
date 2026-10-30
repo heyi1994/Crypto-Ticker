@@ -54,10 +54,25 @@ final class MarketStoreTests: XCTestCase {
         XCTAssertNoThrow(try store.handleFrame(frame("ETH", price: "3000", high: "0.00000000"), window: .day))
         XCTAssertNoThrow(try store.handleFrame(Data("not json".utf8), window: .day))
         XCTAssertNoThrow(try store.handleFrame(frame("BTC", price: "80000"), window: .day))
+        // Quotes for coins outside the watchlist, e.g. a late reply after removal, are ignored.
+        XCTAssertNoThrow(try store.handleFrame(frame("SOL", price: "150"), window: .day))
         XCTAssertEqual(store.quotes.keys.sorted(), ["BTC"])
         XCTAssertTrue(store.live)
         let shutdown = Data(#"{"stream":"!serverShutdown","data":{"e":"serverShutdown","E":1793269256004}}"#.utf8)
         XCTAssertThrowsError(try store.handleFrame(shutdown, window: .day))
+    }
+
+    @MainActor
+    func testStoppingReplacesTheLiveStatus() throws {
+        let suite = "CryptoTickerTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MarketStore(defaults: defaults)
+        try store.handleFrame(frame("BTC", price: "80000"), window: .day)
+        XCTAssertEqual(store.status, L10n.text("status.live"))
+        store.stop()
+        XCTAssertFalse(store.live)
+        XCTAssertEqual(store.status, L10n.text("status.paused"))
     }
 
     @MainActor

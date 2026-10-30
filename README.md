@@ -82,7 +82,7 @@ Turn on **Volatility alerts** near the bottom of the panel. Alerts are off by de
 | Scope | Coins currently pinned to the menu bar |
 | Cooldown | At most one alert per coin every 5 minutes |
 
-Alerts use live prices sampled after monitoring starts, comparing the current price with the earliest valid sample in the monitoring interval. Both rises and falls can trigger an alert. This is independent of the 1h / 4h / 24h display window.
+Alerts use live prices sampled after monitoring starts, comparing the current price with the earliest valid sample in the monitoring interval. After an alert, the alerted price becomes the new baseline, so one move is reported only once. Both rises and falls can trigger an alert. This is independent of the 1h / 4h / 24h display window.
 
 When triggered, the coin shows `⚡` in the menu bar for 30 seconds, and the panel retains the latest alert. macOS requests notification permission the first time you enable alerts. When allowed, system notifications and sounds are also available. The switch and alert rule are saved automatically.
 

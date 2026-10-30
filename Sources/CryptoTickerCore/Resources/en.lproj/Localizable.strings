@@ -32,6 +32,7 @@
 "status.stale" = "Data is stale. Reconnecting…";
 "status.live" = "Live";
 "status.retry" = "Disconnected. Retrying in %ld seconds";
+"status.paused" = "Paused";
 "menu.tooltip" = "Crypto Ticker · USDT · %@ change · %@";
 "menu.latest_alert" = "Latest alert: %@";
 "alerts.toggle" = "Volatility alerts";

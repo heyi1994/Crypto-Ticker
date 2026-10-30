@@ -32,6 +32,7 @@
 "status.stale" = "行情已过期，正在重新连接…";
 "status.live" = "实时连接";
 "status.retry" = "连接中断，%ld 秒后重试";
+"status.paused" = "已暂停";
 "menu.tooltip" = "Crypto Ticker · USDT · %@ 涨跌 · %@";
 "menu.latest_alert" = "最近提醒：%@";
 "alerts.toggle" = "剧烈波动提醒";
