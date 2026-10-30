@@ -61,11 +61,11 @@ struct TickerView: View {
                 Text(L10n.text(isManaging ? "coin.remove" : "coin.pin")).font(.system(size: 10, weight: .medium)).frame(width: 42)
             }.foregroundStyle(.secondary).padding(.horizontal, 20).padding(.bottom, 7)
 
-            CoinListScrollView {
+            CoinListScrollView(layoutKey: store.watchlist.symbols) {
                 VStack(spacing: 0) {
                     ForEach(store.coins) { coin in
                         coinRow(coin)
-                        if coin != store.coins.last {
+                        if coin.symbol != store.watchlist.symbols.last {
                             Divider().padding(.horizontal, 20)
                         }
                     }

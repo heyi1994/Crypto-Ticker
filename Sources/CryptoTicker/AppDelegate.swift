@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private lazy var hostingController = NSHostingController(rootView: TickerView(store: store, notifier: notifier))
     private var updates: AnyCancellable?
     private var alerts: AnyCancellable?
+    private var statusUpdatePending = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -32,8 +33,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         sizePopover()
         popover.contentViewController = hostingController
         updates = store.objectWillChange.sink { [weak self] _ in
-            // ObservableObject publishes before mutation; read the value on the next run loop.
-            DispatchQueue.main.async { self?.updateStatus() }
+            guard let self, !self.statusUpdatePending else { return }
+            self.statusUpdatePending = true
+            // ObservableObject publishes before mutation; read the value on the next run loop,
+            // folding changes that arrive before then into one refresh.
+            DispatchQueue.main.async {
+                self.statusUpdatePending = false
+                self.updateStatus()
+            }
         }
         alerts = store.alertEvents.sink { [weak self] alert in
             Task { @MainActor [weak self] in
@@ -56,12 +63,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func updateStatus() {
-        statusItem.button?.title = store.menuTitle
-        statusItem.button?.toolTip = L10n.text("menu.tooltip", store.selectedWindow.rawValue, store.status)
+        guard let button = statusItem.button else { return }
+        let title = store.menuTitle
+        var toolTip = L10n.text("menu.tooltip", store.selectedWindow.rawValue, store.status)
         if store.alertsEnabled, let alert = store.latestAlert {
-            statusItem.button?.toolTip?.append("\n" + L10n.text("menu.latest_alert", alert.summary))
+            toolTip.append("\n" + L10n.text("menu.latest_alert", alert.summary))
         }
-        statusItem.button?.setAccessibilityLabel(store.menuTitle + " USDT · " + store.status)
+        let label = title + " USDT · " + store.status
+        // Most quotes are for coins outside the menu bar; skip redundant redraws.
+        if button.title != title { button.title = title }
+        if button.toolTip != toolTip { button.toolTip = toolTip }
+        if button.accessibilityLabel() != label { button.setAccessibilityLabel(label) }
     }
 
     @objc private func togglePopover() {

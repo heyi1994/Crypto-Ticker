@@ -183,10 +183,10 @@ final class MarketStore: ObservableObject {
     /// Applies one stream frame. Only a server shutdown ends the connection;
     /// a frame that fails to decode is skipped.
     func handleFrame(_ data: Data, window: PriceWindow, receivedAt date: Date = Date()) throws {
-        if Quote.isServerShutdown(data) { throw URLError(.networkConnectionLost) }
+        let frame = Quote.decodeFrame(data, window: window)
+        if frame == .serverShutdown { throw URLError(.networkConnectionLost) }
         markAlive(at: date)
-        guard window == selectedWindow,
-              let quote = try? Quote.decodeStream(data, window: window),
+        guard case .quote(let quote) = frame, window == selectedWindow,
               apply(quote, receivedAt: date) else { return }
         recordMovement(quote, receivedAt: date)
     }
@@ -202,6 +202,8 @@ final class MarketStore: ObservableObject {
 
     private func markAlive(at date: Date = Date()) {
         lastActivity = date
+        // Every path that clears `live` also replaces the status, so both only change together.
+        guard !live else { return }
         live = true
         status = L10n.text("status.live")
     }

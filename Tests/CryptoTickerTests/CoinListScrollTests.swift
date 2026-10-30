@@ -16,9 +16,9 @@ final class CoinListScrollTests: XCTestCase {
     @MainActor
     func testAddingRowsAllowsScrollingBackFromBottom() throws {
         _ = NSApplication.shared
-        let scroll = CoinListScrollSurface(content: rows(6))
+        let scroll = CoinListScrollSurface(content: rows(6), layoutKey: 6)
         scroll.layoutSubtreeIfNeeded()
-        scroll.update(content: rows(9))
+        scroll.update(content: rows(9), layoutKey: 9)
         let document = try XCTUnwrap(scroll.documentView)
         XCTAssertGreaterThan(document.frame.height, scroll.contentView.bounds.height)
         XCTAssertTrue(scroll.hasVerticalScroller)
@@ -38,17 +38,32 @@ final class CoinListScrollTests: XCTestCase {
     @MainActor
     func testPriceAndWatchlistUpdatesPreservePosition() throws {
         _ = NSApplication.shared
-        let scroll = CoinListScrollSurface(content: rows(10))
+        let scroll = CoinListScrollSurface(content: rows(10), layoutKey: 10)
         scroll.layoutSubtreeIfNeeded()
         scroll.contentView.scroll(to: NSPoint(x: 0, y: 100))
         let offset = scroll.contentView.bounds.minY
         XCTAssertGreaterThan(offset, 0)
 
-        scroll.update(content: rows(10, price: "101.00"))
+        scroll.update(content: rows(10, price: "101.00"), layoutKey: 10)
         XCTAssertEqual(scroll.contentView.bounds.minY, offset, accuracy: 0.1)
-        scroll.update(content: rows(11))
+        scroll.update(content: rows(11), layoutKey: 11)
         XCTAssertEqual(scroll.contentView.bounds.minY, offset, accuracy: 0.1)
-        scroll.update(content: rows(2))
+        scroll.update(content: rows(2), layoutKey: 2)
         XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 0.1)
+    }
+
+    @MainActor
+    func testOnlyALayoutKeyChangeRemeasuresTheDocument() throws {
+        _ = NSApplication.shared
+        let scroll = CoinListScrollSurface(content: rows(10), layoutKey: 10)
+        scroll.layoutSubtreeIfNeeded()
+        let document = try XCTUnwrap(scroll.documentView)
+        let height = document.frame.height
+        // Same key: the rows re-render, but neither update nor layout measures the list again.
+        scroll.update(content: rows(12), layoutKey: 10)
+        scroll.layoutSubtreeIfNeeded()
+        XCTAssertEqual(document.frame.height, height)
+        scroll.update(content: rows(12), layoutKey: 12)
+        XCTAssertGreaterThan(document.frame.height, height)
     }
 }

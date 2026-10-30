@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import XCTest
 import CryptoTickerCore
@@ -60,6 +61,23 @@ final class MarketStoreTests: XCTestCase {
         XCTAssertTrue(store.live)
         let shutdown = Data(#"{"stream":"!serverShutdown","data":{"e":"serverShutdown","E":1793269256004}}"#.utf8)
         XCTAssertThrowsError(try store.handleFrame(shutdown, window: .day))
+    }
+
+    @MainActor
+    func testEachQuoteFramePublishesOnce() throws {
+        let suite = "CryptoTickerTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MarketStore(defaults: defaults)
+        var changes = 0
+        let subscription = store.objectWillChange.sink { changes += 1 }
+        defer { subscription.cancel() }
+        try store.handleFrame(frame("BTC", price: "80000", eventTime: 1), window: .day)
+        changes = 0
+        for eventTime in 2...11 {
+            try store.handleFrame(frame("BTC", price: "80000", eventTime: Double(eventTime)), window: .day)
+        }
+        XCTAssertEqual(changes, 10)
     }
 
     @MainActor

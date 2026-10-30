@@ -33,7 +33,15 @@ final class MarketTests: XCTestCase {
     func testControlEventDoesNotBecomeAQuote() throws {
         let data = Data(#"{"stream":"!serverShutdown","data":{"e":"serverShutdown","E":1793269256004}}"#.utf8)
         XCTAssertNil(try Quote.decodeStream(data))
-        XCTAssertTrue(Quote.isServerShutdown(data))
+        XCTAssertEqual(Quote.decodeFrame(data), .serverShutdown)
+    }
+
+    func testFrameClassification() throws {
+        let quote = try XCTUnwrap(Quote.decodeStream(Data(event.utf8)))
+        XCTAssertEqual(Quote.decodeFrame(Data(event.utf8)), .quote(quote))
+        XCTAssertEqual(Quote.decodeFrame(Data(event.utf8), window: .oneHour), .ignored)
+        XCTAssertEqual(Quote.decodeFrame(Data(event.replacingOccurrences(of: "80116.19", with: "0").utf8)), .ignored)
+        XCTAssertEqual(Quote.decodeFrame(Data("not json".utf8)), .ignored)
     }
 
     func testSnapshotSkipsInvalidEntriesAndKeepsTheRest() throws {

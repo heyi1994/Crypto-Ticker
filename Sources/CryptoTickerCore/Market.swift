@@ -144,9 +144,20 @@ public struct Quote: Equatable, Sendable {
         try JSONDecoder().decode([Snapshot].self, from: data).compactMap { try? $0.quote(window: window) }
     }
 
-    public static func isServerShutdown(_ data: Data) -> Bool {
-        (try? JSONDecoder().decode(StreamEnvelope.self, from: data).data.event) == "serverShutdown"
+    /// Classifies a stream frame with a single decode.
+    public static func decodeFrame(_ data: Data, window: PriceWindow = .day) -> StreamFrame {
+        guard let ticker = try? JSONDecoder().decode(StreamEnvelope.self, from: data).data else { return .ignored }
+        if ticker.event == "serverShutdown" { return .serverShutdown }
+        guard ticker.event == window.eventName, let quote = try? ticker.quote(window: window) else { return .ignored }
+        return .quote(quote)
     }
+}
+
+public enum StreamFrame: Equatable, Sendable {
+    case quote(Quote)
+    case serverShutdown
+    /// Other control events, other windows, and frames that fail to decode.
+    case ignored
 }
 
 public enum PriceFormat {
