@@ -92,7 +92,7 @@ With alerts enabled, click **Test notification** to check delivery. If no banner
 
 - Disconnections trigger automatic reconnection with a 2–30 second backoff. Use the refresh button at the bottom of the panel to reconnect manually.
 - Quotes that have not updated for more than 20 seconds are marked stale. The menu bar shows `◌` while keeping the last price visible.
-- Connections pause during sleep and resume on wake. Switching windows, reconnecting, or a sampling gap longer than 20 seconds resets the volatility baseline. The first quote and REST snapshots do not trigger alerts by themselves.
+- Connections pause during sleep and resume on wake. A sampling gap longer than 20 seconds, such as after sleep or a long outage, resets the volatility baseline. Switching windows or editing the watchlist does not. The first quote and REST snapshots do not trigger alerts by themselves.
 
 ## Development and verification
 

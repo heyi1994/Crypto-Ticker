@@ -33,7 +33,11 @@ final class MarketStore: ObservableObject {
     private var stream: URLSessionWebSocketTask?
     private var connectionTask: Task<Void, Never>?
     private var clockTask: Task<Void, Never>?
-    private var receivedAt: Date?
+    // The last frame or pong on the current socket.
+    private var lastActivity: Date?
+    private var pinging = false
+    // Local receive times. Exchange timestamps come from a different clock.
+    private var quoteReceivedAt: [String: Date] = [:]
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -83,6 +87,7 @@ final class MarketStore: ObservableObject {
         defaults.set(window.rawValue, forKey: "priceWindow")
         // Do not display a previous window's percentage under the new label.
         quotes.removeAll()
+        quoteReceivedAt.removeAll()
         reconnect()
     }
 
@@ -90,7 +95,13 @@ final class MarketStore: ObservableObject {
         guard coins.count > 1 else { return }
         watchlist.remove(symbol)
         quotes.removeValue(forKey: symbol)
+        quoteReceivedAt.removeValue(forKey: symbol)
+        volatilityMonitor.resetHistory(for: symbol)
         reconnect()
+    }
+
+    func isStale(_ symbol: String, at date: Date) -> Bool {
+        quoteReceivedAt[symbol].map { date.timeIntervalSince($0) > 20 } ?? true
     }
 
     @discardableResult
@@ -126,7 +137,7 @@ final class MarketStore: ObservableObject {
     var menuTitle: String {
         selectedWindow.rawValue + " · " + pinned.map { symbol in
             guard let quote = quotes[symbol] else { return "\(symbol) ···" }
-            let stale = !live || quote.isStale(at: now)
+            let stale = !live || isStale(symbol, at: now)
             let arrow = stale ? "◌" : quote.changePercent >= 0 ? "↗" : "↘"
             let highlighted = latestAlert.map {
                 alertsEnabled && $0.symbol == symbol && now.timeIntervalSince($0.date) < 30
@@ -143,12 +154,7 @@ final class MarketStore: ObservableObject {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard !Task.isCancelled, let self else { return }
                 self.now = Date()
-                if self.live, let receivedAt = self.receivedAt,
-                   Date().timeIntervalSince(receivedAt) > 20 {
-                    self.live = false
-                    self.status = L10n.text("status.stale")
-                    self.stream?.cancel(with: .goingAway, reason: nil)
-                }
+                self.checkConnection()
             }
         }
     }
@@ -160,8 +166,7 @@ final class MarketStore: ObservableObject {
         connectionTask = nil
         clockTask = nil
         stream = nil
-        receivedAt = nil
-        volatilityMonitor.resetHistory()
+        lastActivity = nil
         live = false
     }
 
@@ -171,22 +176,66 @@ final class MarketStore: ObservableObject {
         start()
     }
 
+    /// Applies one stream frame. Only a server shutdown ends the connection;
+    /// a frame that fails to decode is skipped.
+    func handleFrame(_ data: Data, window: PriceWindow, receivedAt date: Date = Date()) throws {
+        if Quote.isServerShutdown(data) { throw URLError(.networkConnectionLost) }
+        markAlive(at: date)
+        guard window == selectedWindow,
+              let quote = try? Quote.decodeStream(data, window: window),
+              apply(quote, receivedAt: date) else { return }
+        recordMovement(quote, receivedAt: date)
+    }
+
+    @discardableResult
+    private func apply(_ quote: Quote, receivedAt date: Date) -> Bool {
+        guard watchlist.symbols.contains(quote.symbol),
+              quotes[quote.symbol].map({ $0.date <= quote.date }) ?? true else { return false }
+        quotes[quote.symbol] = quote
+        quoteReceivedAt[quote.symbol] = date
+        return true
+    }
+
+    private func markAlive(at date: Date = Date()) {
+        lastActivity = date
+        live = true
+        status = L10n.text("status.live")
+    }
+
+    // A quiet watchlist can go 20 s without a ticker, so silence alone is not a disconnect.
+    // Ping instead, and drop the socket only when no pong comes back.
+    private func checkConnection() {
+        guard let socket = stream, !pinging, let lastActivity,
+              Date().timeIntervalSince(lastActivity) > 20 else { return }
+        pinging = true
+        let deadline = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard !Task.isCancelled, let self, self.stream === socket else { return }
+            self.live = false
+            self.status = L10n.text("status.stale")
+            socket.cancel(with: .goingAway, reason: nil)
+        }
+        socket.sendPing { [weak self] error in
+            let alive = error == nil
+            Task { @MainActor [weak self] in
+                deadline.cancel()
+                guard let self, self.stream === socket else { return }
+                self.pinging = false
+                if alive { self.markAlive() } else { socket.cancel(with: .goingAway, reason: nil) }
+            }
+        }
+    }
+
     private func connectLoop() async {
         var failures = 0
         while !Task.isCancelled {
-            volatilityMonitor.resetHistory()
             let window = selectedWindow
             let socket = session.webSocketTask(with: window.streamURL(pairs: coins.map(\.pair)))
             stream = socket
+            // Starting the clock here also covers a socket that never delivers its first frame.
+            lastActivity = Date()
+            pinging = false
             socket.resume()
-            // The deadline cancels even a connection that never delivers its first message.
-            let watchdog = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 20_000_000_000)
-                guard !Task.isCancelled, let self, self.stream === socket else { return }
-                if self.receivedAt == nil || Date().timeIntervalSince(self.receivedAt!) > 20 {
-                    socket.cancel(with: .goingAway, reason: nil)
-                }
-            }
             let snapshot = Task { [weak self] in await self?.loadSnapshot(window: window) }
             do {
                 while !Task.isCancelled {
@@ -198,51 +247,45 @@ final class MarketStore: ObservableObject {
                     case .data(let bytes): data = bytes
                     @unknown default: continue
                     }
-                    if Quote.isServerShutdown(data) { throw URLError(.networkConnectionLost) }
-                    guard window == selectedWindow,
-                          let quote = try Quote.decodeStream(data, window: window),
-                          watchlist.symbols.contains(quote.symbol) else { continue }
-                    if quotes[quote.symbol].map({ $0.date <= quote.date }) ?? true {
-                        quotes[quote.symbol] = quote
-                        recordMovement(quote)
-                    }
-                    receivedAt = Date()
-                    now = Date()
-                    live = true
-                    status = L10n.text("status.live")
+                    try handleFrame(data, window: window)
                     failures = 0
                 }
-            } catch {
-                if !Task.isCancelled {
-                    live = false
-                    failures += 1
-                    let delay = min(pow(2, Double(min(failures, 5))), 30)
-                    status = L10n.text("status.retry", Int(delay))
-                    socket.cancel(with: .goingAway, reason: nil)
-                    watchdog.cancel()
-                    snapshot.cancel()
-                    try? await Task.sleep(nanoseconds: UInt64((delay + Double.random(in: 0...0.5)) * 1_000_000_000))
-                }
-            }
-            watchdog.cancel()
+            } catch {}
             snapshot.cancel()
             socket.cancel(with: .goingAway, reason: nil)
+            if stream === socket { stream = nil }
+            guard !Task.isCancelled else { return }
+            live = false
+            failures += 1
+            let delay = min(pow(2, Double(min(failures, 5))), 30)
+            status = L10n.text("status.retry", Int(delay))
+            try? await Task.sleep(nanoseconds: UInt64((delay + Double.random(in: 0...0.5)) * 1_000_000_000))
         }
     }
 
     private func loadSnapshot(window: PriceWindow) async {
+        let snapshot = await fetchSnapshot(window: window, pairs: coins.map(\.pair))
+        guard !Task.isCancelled, window == selectedWindow else { return }
+        let date = Date()
+        for quote in snapshot { apply(quote, receivedAt: date) }
+    }
+
+    // The stream owns connection status; a snapshot failure must not hide live data.
+    private func fetchSnapshot(window: PriceWindow, pairs: [String]) async -> [Quote] {
         do {
-            let url = try window.snapshotURL(pairs: coins.map(\.pair))
-            let (data, response) = try await session.data(from: url)
-            try Task.checkCancellation()
-            guard window == selectedWindow, (response as? HTTPURLResponse)?.statusCode == 200 else { return }
-            for quote in try Quote.decodeSnapshot(data, window: window) {
-                if quotes[quote.symbol].map({ $0.date <= quote.date }) ?? true {
-                    quotes[quote.symbol] = quote
-                }
-            }
+            let (data, response) = try await session.data(from: window.snapshotURL(pairs: pairs))
+            let code = (response as? HTTPURLResponse)?.statusCode
+            if code == 200 { return try Quote.decodeSnapshot(data, window: window) }
+            // One unknown pair makes Binance reject the whole batch, so retry pair by pair.
+            guard code == 400, pairs.count > 1 else { return [] }
         } catch {
-            // The stream owns connection status; a snapshot failure must not hide live data.
+            return []
+        }
+        return await withTaskGroup(of: [Quote].self) { group in
+            for pair in pairs {
+                group.addTask { await self.fetchSnapshot(window: window, pairs: [pair]) }
+            }
+            return await group.reduce(into: []) { $0 += $1 }
         }
     }
 }

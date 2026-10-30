@@ -129,10 +129,6 @@ public struct Quote: Equatable, Sendable {
     public let low: Double
     public let date: Date
 
-    public func isStale(at now: Date = Date()) -> Bool {
-        now.timeIntervalSince(date) > 20
-    }
-
     public var formattedPrice: String { PriceFormat.price(price) }
     public var formattedChange: String { String(format: "%+.2f%%", changePercent) }
 
@@ -144,7 +140,8 @@ public struct Quote: Equatable, Sendable {
     }
 
     public static func decodeSnapshot(_ data: Data, window: PriceWindow = .day) throws -> [Quote] {
-        try JSONDecoder().decode([Snapshot].self, from: data).map { try $0.quote(window: window) }
+        // Skip a bad entry rather than discard the whole watchlist.
+        try JSONDecoder().decode([Snapshot].self, from: data).compactMap { try? $0.quote(window: window) }
     }
 
     public static func isServerShutdown(_ data: Data) -> Bool {
@@ -185,12 +182,12 @@ private struct StreamTicker: Decodable {
 }
 
 private struct Snapshot: Decodable {
-    let symbol: String
-    let lastPrice: String
-    let priceChangePercent: String
-    let highPrice: String
-    let lowPrice: String
-    let closeTime: Double
+    let symbol: String?
+    let lastPrice: String?
+    let priceChangePercent: String?
+    let highPrice: String?
+    let lowPrice: String?
+    let closeTime: Double?
 
     func quote(window: PriceWindow) throws -> Quote {
         try makeQuote(symbol: symbol, price: lastPrice, change: priceChangePercent,

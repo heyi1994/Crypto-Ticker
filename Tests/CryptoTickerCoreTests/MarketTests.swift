@@ -36,10 +36,14 @@ final class MarketTests: XCTestCase {
         XCTAssertTrue(Quote.isServerShutdown(data))
     }
 
-    func testStalenessBoundary() throws {
-        let quote = try XCTUnwrap(Quote.decodeStream(Data(event.utf8)))
-        XCTAssertFalse(quote.isStale(at: quote.date.addingTimeInterval(20)))
-        XCTAssertTrue(quote.isStale(at: quote.date.addingTimeInterval(20.01)))
+    func testSnapshotSkipsInvalidEntriesAndKeepsTheRest() throws {
+        let snapshot = #"""
+        [{"symbol":"QUIETUSDT","lastPrice":"1.5","priceChangePercent":"0","highPrice":"0.00000000","lowPrice":"0.00000000","closeTime":1793269256004},
+         {"symbol":"HALFUSDT","lastPrice":"2.5"},
+         {"symbol":"BTCUSDT","lastPrice":"80116.19","priceChangePercent":"-1.735","highPrice":"81788.56","lowPrice":"79710.00","closeTime":1793269256004}]
+        """#
+        XCTAssertEqual(try Quote.decodeSnapshot(Data(snapshot.utf8)).map(\.symbol), ["BTC"])
+        XCTAssertThrowsError(try Quote.decodeSnapshot(Data(#"{"code":-1121,"msg":"Invalid symbol."}"#.utf8)))
     }
 
     func testFormattingPreservesSmallCoinPrices() {

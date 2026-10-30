@@ -40,6 +40,62 @@ final class MarketStoreTests: XCTestCase {
         XCTAssertEqual(delivered.count, 1)
     }
 
+    private func frame(_ symbol: String, price: String, high: String = "200", eventTime: Double = 1793269256004) -> Data {
+        Data(#"{"stream":"x","data":{"e":"24hrTicker","E":\#(eventTime),"s":"\#(symbol)USDT","c":"\#(price)","P":"1","h":"\#(high)","l":"1"}}"#.utf8)
+    }
+
+    @MainActor
+    func testUndecodableFrameIsSkippedWithoutDroppingTheConnection() throws {
+        let suite = "CryptoTickerTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["BTC", "ETH"], forKey: "watchlistSymbols")
+        let store = MarketStore(defaults: defaults)
+        XCTAssertNoThrow(try store.handleFrame(frame("ETH", price: "3000", high: "0.00000000"), window: .day))
+        XCTAssertNoThrow(try store.handleFrame(Data("not json".utf8), window: .day))
+        XCTAssertNoThrow(try store.handleFrame(frame("BTC", price: "80000"), window: .day))
+        XCTAssertEqual(store.quotes.keys.sorted(), ["BTC"])
+        XCTAssertTrue(store.live)
+        let shutdown = Data(#"{"stream":"!serverShutdown","data":{"e":"serverShutdown","E":1793269256004}}"#.utf8)
+        XCTAssertThrowsError(try store.handleFrame(shutdown, window: .day))
+    }
+
+    @MainActor
+    func testStalenessUsesLocalReceiveTimeNotExchangeTime() throws {
+        let suite = "CryptoTickerTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["BTC", "ETH"], forKey: "watchlistSymbols")
+        let store = MarketStore(defaults: defaults)
+        let received = Date()
+        // Exchange timestamps a minute ahead of and behind the local clock.
+        for (symbol, offset) in [("BTC", 60.0), ("ETH", -60.0)] {
+            let eventTime = (received.timeIntervalSince1970 + offset) * 1000
+            try store.handleFrame(frame(symbol, price: "100", eventTime: eventTime), window: .day, receivedAt: received)
+            XCTAssertFalse(store.isStale(symbol, at: received.addingTimeInterval(20)))
+            XCTAssertTrue(store.isStale(symbol, at: received.addingTimeInterval(20.01)))
+        }
+        XCTAssertTrue(store.isStale("SOL", at: received))
+    }
+
+    @MainActor
+    func testEditingTheWatchlistKeepsPinnedAlertBaseline() throws {
+        let suite = "CryptoTickerTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["BTC", "ETH", "DOGE"], forKey: "watchlistSymbols")
+        defaults.set(["BTC"], forKey: "pinnedSymbols")
+        let store = MarketStore(defaults: defaults)
+        store.setAlertsEnabled(true)
+        let first = try quote("BTC", price: 100, second: 0)
+        store.recordMovement(first, receivedAt: first.date)
+        store.removeCoin("DOGE")
+        store.stop()
+        let second = try quote("BTC", price: 101, second: 1)
+        store.recordMovement(second, receivedAt: second.date)
+        XCTAssertEqual(store.latestAlert?.symbol, "BTC")
+    }
+
     @MainActor
     func testAlertSettingsPersistWithoutChangingTheDisplayWindow() throws {
         let suite = "CryptoTickerTests.\(UUID().uuidString)"

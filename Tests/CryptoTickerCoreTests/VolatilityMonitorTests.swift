@@ -72,9 +72,19 @@ final class VolatilityMonitorTests: XCTestCase {
         XCTAssertNil(record(&monitor, .nan, 1))
         XCTAssertNil(record(&monitor, -1, 1))
         XCTAssertNil(record(&monitor, 110, -1))
-        XCTAssertNil(monitor.record(symbol: "BTC", price: 110, at: start.addingTimeInterval(1),
-                                    receivedAt: start.addingTimeInterval(30), rule: VolatilityRule()))
         XCTAssertNotNil(record(&monitor, 102, 2))
+    }
+
+    func testClockSkewBetweenExchangeAndLocalTimeDoesNotBlockAlerts() {
+        for skew in [-60.0, 60] {
+            var monitor = VolatilityMonitor()
+            for (price, second) in [(100.0, 0.0), (101.0, 1.0)] {
+                let date = start.addingTimeInterval(second)
+                let alert = monitor.record(symbol: "BTC", price: price, at: date,
+                                           receivedAt: date.addingTimeInterval(skew), rule: VolatilityRule())
+                XCTAssertEqual(alert != nil, price == 101, "skew \(skew)")
+            }
+        }
     }
 
     func testDifferentDurationsDetectOnlyMovementWithinTheirWindows() {

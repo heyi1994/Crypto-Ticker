@@ -158,7 +158,7 @@ struct TickerView: View {
 
     private func coinRow(_ coin: Coin) -> some View {
         let quote = store.quotes[coin.symbol]
-        let isStale = quote.map { $0.isStale(at: store.now) } ?? true
+        let isStale = store.isStale(coin.symbol, at: store.now)
         let isPinned = store.pinned.contains(coin.symbol)
         let disabled = isPinned ? store.pinned.count == 1 : store.pinned.count >= 3
         let tint: Color = coin.symbol == "BTC" ? .orange : coin.symbol == "ETH" ? .indigo : .secondary

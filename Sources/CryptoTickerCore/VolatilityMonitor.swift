@@ -43,8 +43,8 @@ public struct VolatilityMonitor {
 
     public mutating func record(symbol: String, price: Double, at date: Date,
                                 receivedAt now: Date, rule: VolatilityRule) -> MovementAlert? {
-        guard price.isFinite, price > 0,
-              now.timeIntervalSince(date) <= 20, date.timeIntervalSince(now) <= 5 else { return nil }
+        // `date` is exchange time and `now` is local time. The clocks can disagree, so never compare them.
+        guard price.isFinite, price > 0 else { return nil }
         var history = samples[symbol] ?? []
         if let last = history.last {
             guard date > last.date else { return nil }
